@@ -18,7 +18,7 @@ const ChatScreen: React.FC = () => {
 
   // API配置 - 支持多个地址
   const API_CONFIGS = [
-    'http://192.168.1.188:8888/easy/stream2',  // 局域网地址
+    'http://192.168.1.188:8888/easy/stream3',  // 新接口路径
   ];
 
   // 获取本机IP地址（用于调试）
@@ -170,15 +170,19 @@ const ChatScreen: React.FC = () => {
 
       if (Platform.OS === 'web') {
         // Web端流式fetch
-        const response = await fetch(workingApi, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
+        // 拼接GET参数
+        const params = { message: userMsg.content };
+        const queryString = Object.entries(params)
+          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+          .join('&');
+        const url = `${workingApi}?${queryString}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
           },
-          body: JSON.stringify({ message: userMsg.content })
         });
         if (!response.ok) throw new Error(`服务器响应错误: ${response.status} ${response.statusText}`);
         if (!response.body) throw new Error('无流式响应，服务器可能不支持流式传输');
@@ -231,11 +235,13 @@ const ChatScreen: React.FC = () => {
       } else {
         // Android/iOS端用EventSource
         setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: '' } : m));
-        const es = new EventSource(workingApi, {
-          headers: { 'Content-Type': 'application/json' },
-          method: 'POST',
-          body: JSON.stringify({ message: userMsg.content })
-        });
+        // 拼接GET参数
+        const params = { message: userMsg.content };
+        const queryString = Object.entries(params)
+          .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+          .join('&');
+        const url = `${workingApi}?${queryString}`;
+        const es = new EventSource(url);
         esRef.current = es;
         let aiContent = '';
         es.addEventListener('message', (event: any) => {
@@ -252,12 +258,14 @@ const ChatScreen: React.FC = () => {
           setLoading(false);
           es.close();
         });
+        // 保险：监听close事件也setLoading(false)
+        es.addEventListener('close', () => {
+          setLoading(false);
+        });
       }
-      
     } catch (e) {
       console.error('AI服务错误:', e);
       const errorMessage = e instanceof Error ? e.message : '未知错误';
-      
       // 显示详细的错误信息
       Alert.alert(
         '连接失败',
@@ -282,10 +290,12 @@ const ChatScreen: React.FC = () => {
           }
         ]
       );
-      
       setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: `连接失败: ${errorMessage}` } : m));
+      setLoading(false); // 保证catch分支也能重置loading
     } finally {
+      // 保险：始终重置loading
       setLoading(false);
+      console.log('【sendMessage finally】loading已重置');
     }
   };
 
